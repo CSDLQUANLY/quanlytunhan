@@ -56,3 +56,153 @@ where Prison.prison_address='Ha Noi city'
 group by Prison.prison_id,Prison.prison_name
 having count(Prison_staff.prison_staff_id)>8
 
+/*02 câu lệnh gồm select có where, group by, having và order by*/
+-- tìm nhà tù có nhiều hơn 2 tù nhân nam và sắp xếp theo số lượng tù nhân nam trong độ tuổi từ 20 đến 25 giảm dần
+select Prison.prison_name, Prison.prison_address, Prison.prison_capacity, Prison.chief_warden_name from Prison 
+inner join Prisoner_with_Prison on Prisoner_with_Prison.prison_id = Prison.prison_id 
+inner join Prisoner on Prisoner.prisoner_id = Prisoner_with_Prison.prisoner_id
+where DATEDIFF(YEAR, Prisoner.date_of_birth, GETDATE()) between 40 and 45 and Prisoner.gender = N'Nam'
+group by prison_name, prison_address, prison_capacity, chief_warden_name
+having count(Prisoner.prisoner_id) > 2
+order by count(Prisoner.prisoner_id) desc
+
+-- tìm nhà tù có nhiều hơn 6 tù nhân nam và được sắp xếp theo chiều tăng dần về thời gian chịu án
+
+SELECT Prison.prison_name, Prison.prison_address, Prison.prison_capacity, Prison.chief_warden_name FROM Prison 
+INNER JOIN Prisoner_with_Prison ON Prisoner_with_Prison.prison_id = Prison.prison_id 
+INNER JOIN Prisoner ON Prisoner.prisoner_id = Prisoner_with_Prison.prisoner_id 
+WHERE Prisoner.gender = N'Nam' 
+GROUP BY prison_name, prison_address, prison_capacity, chief_warden_name 
+HAVING COUNT(Prisoner.prisoner_id) > 6 
+ORDER BY DATEDIFF(YEAR, MIN(Prisoner.start_day), MAX(Prisoner.end_day)) ASC;
+
+/* 02 câu lệnh gồm select có where, group by, having và truy vấn con*/
+-- Tìm những nhà tù có capacity > 9000 và số lượng tù nhân > 5,
+--chứa ít nhất 1 tù nhân mang tội danh 'Cuop giat tai san' 
+SELECT Prison.prison_name, Prison.prison_address, Prison.prison_capacity, Prison.chief_warden_name,Crime.crime_name,
+       COUNT(Prisoner.prisoner_id) AS num_prisoners FROM Prison 
+INNER JOIN Prisoner_with_Prison ON Prison.prison_id = Prisoner_with_Prison.prison_id 
+INNER JOIN Prisoner ON Prisoner_with_Prison.prisoner_id = Prisoner.prisoner_id 
+INNER JOIN Prisoner_with_Crime ON Prisoner.prisoner_id = Prisoner_with_Crime.prisoner_id 
+INNER JOIN Crime ON Crime.crime_id = Prisoner_with_Crime.crime_id 
+INNER JOIN (
+    SELECT DISTINCT pwp.prison_id
+    FROM Prisoner_with_Prison pwp
+    INNER JOIN Prisoner_with_Crime pwc ON pwp.prisoner_id = pwc.prisoner_id
+    INNER JOIN Crime c ON pwc.crime_id = c.crime_id
+    WHERE c.crime_name = N'Cuop giat tai san'
+) AS T ON Prison.prison_id = T.prison_id
+GROUP BY Prison.prison_name, Prison.prison_address, Prison.prison_capacity, Prison.chief_warden_name, Crime.crime_name
+HAVING COUNT(Prisoner.prisoner_id) > 5
+AND Prison.prison_capacity > 9000;
+
+
+-- cho biết những tù nhân ở nhà tù "White Tiger" lớn hơn 30 tuổi và không mang tội danh "Hiep dam"
+SELECT prs.first_name, prs.last_name, DATEDIFF(YEAR, prs.date_of_birth, GETDATE()) as AGE from Prisoner as prs
+inner join Prisoner_with_Prison as pwp on pwp.prisoner_id = prs.prisoner_id
+inner join Prison as ps on ps.prison_id = pwp.prison_id
+where ps.prison_name = N'White Tiger' 
+					   and prs.prisoner_id Not in (
+					   select prs1.prisoner_id from Prisoner as prs1
+					   inner join Prisoner_with_Crime as pwc on pwc.prisoner_id = prs1.prisoner_id
+					   inner join Crime as cr on cr.crime_id = pwc.crime_id
+					   where cr.crime_name = N'Hiep dam')
+					   group by prs.first_name, prs.last_name, prs.date_of_birth
+					   Having max(DATEDIFF(YEAR, prs.date_of_birth, GETDATE())) > 30
+
+/* 02 câu câu lệnh insert có điều kiện*/
+-- Tạo một bảng tên "Sentence_Reduction" chứa những người đi tù nhiều hơn 2 năm 
+CREATE TABLE Sentence_Reduction (
+    prisoner_id INT,
+	first_name VARCHAR(50),
+	last_name VARCHAR(50),
+    reduction_amount INT
+);
+
+-- Thêm dữ liệu vào bảng Sentence_Reduction
+INSERT INTO Sentence_Reduction (prisoner_id,first_name,last_name, reduction_amount)
+SELECT p.prisoner_id, 
+		p.first_name,
+		p.last_name,
+       2 AS reduction_amount
+FROM Prisoner AS p
+WHERE EXISTS (
+    SELECT 1
+    FROM Prisoner_with_Crime AS pwc
+    INNER JOIN Crime AS c ON pwc.crime_id = c.crime_id
+    WHERE pwc.prisoner_id = p.prisoner_id
+    GROUP BY pwc.prisoner_id
+    HAVING DATEDIFF(YEAR, p.start_day, p.end_day) >= 2
+);
+
+-- Tạo một bảng chỉ những người có tội danh giết người
+CREATE TABLE Killing (
+	prisoner_id INT,
+    first_name NVARCHAR(50),
+    last_name NVARCHAR(50),
+    start_day DATE,
+    end_day DATE
+);
+
+INSERT INTO Killing (prisoner_id, first_name, last_name, start_day, end_day)
+SELECT p.prisoner_id, p.first_name, p.last_name, p.start_day, p.end_day
+FROM Prisoner p
+INNER JOIN Prisoner_with_Crime pwc ON p.prisoner_id = pwc.prisoner_id
+INNER JOIN Crime c ON pwc.crime_id = c.crime_id
+WHERE c.crime_name = N'Giet nguoi';
+
+
+/*- 02 câu lệnh update có điều kiện*/
+-- giảm thời gian chịu án 2 năm với những tù nhân có tình trạng cải tạo tốt
+
+UPDATE Prisoner
+SET end_day = DATEADD(YEAR, -2, end_day) -- Giảm thời gian chịu án 2 năm
+WHERE prisoner_id IN (
+    SELECT p.prisoner_id
+    FROM Prisoner p
+    INNER JOIN Prisoner_with_Prison pr ON p.prisoner_id = pr.prisoner_id
+    WHERE p.status = 'Tot' -- Tình trạng cải tạo tốt
+) 
+AND DATEDIFF(YEAR, start_day, end_day) > 2
+
+-- thêm cột số người thân của tù nhân trong bảng tù nhân
+ALTER TABLE Prisoner
+ADD num_family_members INT;
+
+UPDATE Prisoner
+SET num_family_members = (
+    SELECT COUNT(Relative_of_prisoner.prisoner_id)
+    FROM Relative_of_prisoner
+    WHERE Relative_of_prisoner.prisoner_id = Prisoner.prisoner_id
+	GROUP BY Prisoner.prisoner_id
+)
+WHERE EXISTS (
+    SELECT 1
+    FROM Relative_of_prisoner
+    WHERE prisoner_id = Prisoner.prisoner_id
+);
+
+update Prisoner 
+set num_family_members = Songuoithan from(
+select Relative_of_prisoner.prisoner_id, count(Relative_of_prisoner.first_name) as Songuoithan from Relative_of_prisoner
+group by Relative_of_prisoner.prisoner_id
+) as new_Table
+where new_Table.prisoner_id = Prisoner.prisoner_id
+
+
+/*- 02 câu lệnh delete có điều kiện*/
+-- xóa tù nhân có tình trạng cải tạo tốt và mức độ '1'
+DELETE FROM Prisoner 
+WHERE prisoner_id IN (
+    SELECT prisoner_id FROM Prisoner as prs
+	inner join Prisoner_with_Crime as pwc on pwc.prisoner_id = Prisoner.prisoner_id
+	inner join Crime on Crime.crime_id = pwc.crime_id
+    WHERE prs.status = 'Tot' AND Crime.crime_level = '1'
+);
+
+-- Xóa những người thân tù nhân đã ra tù
+DELETE FROM Relative_of_prisoner
+WHERE prisoner_id NOT IN (
+    SELECT prisoner_id
+    FROM Prisoner
+);
